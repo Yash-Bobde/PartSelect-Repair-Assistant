@@ -93,28 +93,40 @@ class DeepSeekClient:
             "Content-Type": "application/json"
         }
         
-        try:
-            response = await self.client.post(
-                f"{self.base_url}/chat/completions",
-                json=payload,
-                headers=headers
-            )
-            
-            response.raise_for_status()
-            
-            result = response.json()
-            
-            # Extract content
-            content = result["choices"][0]["message"]["content"]
-            
-            return content
-        
-        except httpx.HTTPStatusError as e:
-            print(f"HTTP error: {e.response.status_code} - {e.response.text}")
-            raise
-        except Exception as e:
-            print(f"Error calling DeepSeek API: {e}")
-            raise
+        # Retry transient upstream errors (5xx / rate limits / network blips) with
+        # exponential backoff so one hiccup from the LLM API doesn't fail the turn.
+        retryable_status = {408, 409, 429, 500, 502, 503, 504}
+        last_error = None
+        for attempt in range(3):
+            try:
+                response = await self.client.post(
+                    f"{self.base_url}/chat/completions",
+                    json=payload,
+                    headers=headers
+                )
+                response.raise_for_status()
+                result = response.json()
+                return result["choices"][0]["message"]["content"]
+
+            except httpx.HTTPStatusError as e:
+                last_error = e
+                if e.response.status_code in retryable_status and attempt < 2:
+                    print(f"[LLM] {e.response.status_code} from API, retry {attempt + 1}/2")
+                    await asyncio.sleep(0.6 * (2 ** attempt))
+                    continue
+                print(f"HTTP error: {e.response.status_code} - {e.response.text[:200]}")
+                raise
+            except (httpx.TransportError, httpx.TimeoutException) as e:
+                last_error = e
+                if attempt < 2:
+                    print(f"[LLM] transport error ({e!r}), retry {attempt + 1}/2")
+                    await asyncio.sleep(0.6 * (2 ** attempt))
+                    continue
+                print(f"Error calling LLM API: {e}")
+                raise
+
+        if last_error:
+            raise last_error
     
     async def generate_with_chat_history(
         self,

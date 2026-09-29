@@ -23,12 +23,36 @@ export function RepairPanel({ context, problems, shortlist, onAddModel, onClose 
   const copyList = async () => {
     const lines = shortlist.items.map((p) => `${p.partNumber}  ${p.title}  ${formatPrice(p.price)}`);
     lines.push(`Total: ${formatPrice(shortlist.total)}`);
+    const text = lines.join('\n');
+
+    let ok = false;
     try {
-      await navigator.clipboard.writeText(lines.join('\n'));
-      setCopied(true);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      }
     } catch {
-      // Clipboard can be blocked; nothing else to do.
+      ok = false;
     }
+
+    // Fallback for contexts where the async Clipboard API is blocked/unavailable.
+    if (!ok) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch {
+        ok = false;
+      }
+    }
+
+    if (ok) setCopied(true);
   };
 
   return (
@@ -50,7 +74,7 @@ export function RepairPanel({ context, problems, shortlist, onAddModel, onClose 
           Appliance
         </h3>
         <div className="appliance-card">
-          <span className="appliance-card__icon">
+          <span className={`appliance-card__icon${context.appliance ? ' appliance-card__icon--active' : ''}`}>
             <ApplianceIcon type={context.appliance} size={26} strokeWidth={1.75} />
           </span>
           <dl className="appliance-card__facts">

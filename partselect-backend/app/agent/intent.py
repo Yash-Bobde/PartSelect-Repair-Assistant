@@ -281,11 +281,17 @@ KEY DISTINCTIONS:
 
 Extract entities:
 - part_number: PS + 7-8 digits
-- model_number: Appliance model 
+- model_number: Appliance model
 - appliance_type: refrigerator, dishwasher, etc.
 - brand: Samsung, Whirlpool, etc.
 - symptom: Full symptom description
 - search_query: Cleaned search term (remove filler words like "show me", "different", "options")
+
+BRAND EXTRACTION (IMPORTANT):
+- ALWAYS set "brand" whenever a brand name appears ANYWHERE in the query, including diagnosis and compatibility questions.
+- Recognized brands: Whirlpool, Samsung, GE, LG, Bosch, Maytag, KitchenAid, Frigidaire, Kenmore, Amana, Electrolux, Blomberg, SMEG, Midea.
+- Example: "my Whirlpool fridge is not making ice" -> brand = "Whirlpool", appliance_type = "refrigerator", symptom about ice maker.
+- Only omit "brand" when no brand is mentioned. Never guess a brand that was not stated.
 CRITICAL: Distinguishing Part Numbers from Model Numbers
 
 **Part Numbers:**
@@ -315,13 +321,15 @@ CLEANING RULES for search_query:
 
 Respond ONLY with valid JSON:
 {
-  "intent": "search_part",
+  "intent": "diagnose_issue",
   "entities": {
     "appliance_type": "refrigerator",
+    "brand": "Whirlpool",
+    "symptom": "ice maker not working",
     "search_query": "ice maker"
   },
   "confidence": 0.95,
-  "reasoning": "User wants to browse ice maker options"
+  "reasoning": "User's Whirlpool refrigerator ice maker is not working"
 }"""
         # Build user prompt with context
         user_prompt = f"Classify this query: \"{query}\""

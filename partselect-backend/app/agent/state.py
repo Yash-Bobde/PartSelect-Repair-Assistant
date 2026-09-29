@@ -19,7 +19,9 @@ class AgentState(TypedDict):
     waiting_for: Optional[str]  
     # User context
     appliance_type: Optional[str]  # "refrigerator" or "dishwasher"
+    brand: Optional[str]  # e.g. "Whirlpool" (must be a channel so it persists)
     symptoms: List[str]  # What's broken?
+    symptom: Optional[str]  # Single symptom description used by search
     model_number: Optional[str]
     part_number: Optional[str]
     

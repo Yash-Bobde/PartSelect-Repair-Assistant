@@ -22,11 +22,12 @@ function describe(verdict, part, model) {
     };
   }
   if (verdict.kind === 'likely') {
+    const brand = part.brand ? `${part.brand} ` : '';
     return {
       tone: 'likely',
       icon: ShieldCheck,
       title: `Likely fits your ${model}`,
-      body: `This ${part.brand || ''} filter fits many models of the same brand. Confirm your model on the product page before ordering.`,
+      body: `This ${brand}part fits many models in the same brand family. Confirm your model on the product page before ordering.`,
     };
   }
   return {

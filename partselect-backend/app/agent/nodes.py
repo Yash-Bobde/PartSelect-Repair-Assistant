@@ -24,7 +24,25 @@ class AgentNodes:
         self.tools = SearchTools()
         self.intent_classifier = IntentClassifier()
         self.llm = get_llm_client()
-    
+
+    @staticmethod
+    def _is_valid_model(value) -> bool:
+        """A real appliance model number mixes letters and digits (e.g. WDT780SAEM1).
+        Rejects plain words the LLM sometimes extracts, like 'fridge' or 'my model'."""
+        if not isinstance(value, str):
+            return False
+        code = value.strip().upper()
+        if len(code) < 5 or code.startswith(("PS", "AP")):
+            return False
+        return bool(re.search(r"[A-Z]", code) and re.search(r"\d", code))
+
+    @staticmethod
+    def _is_valid_part(value) -> bool:
+        """Part numbers look like PS12345678, AP5982535, or W10291030."""
+        if not isinstance(value, str):
+            return False
+        return bool(re.match(r"^(PS\d{5,}|AP\d{5,}|W\d{8})$", value.strip().upper()))
+
     async def understand_query(self, state: AgentState) -> AgentState:
         """Node 1: Understand query and merge with existing context"""
         
@@ -57,8 +75,17 @@ class AgentNodes:
                 continue
             
             if value:  # New value provided
+                # Guard against junk codes the LLM sometimes emits (e.g.
+                # model_number = "fridge"), which otherwise poison compatibility.
+                if key == "model_number" and not self._is_valid_model(value):
+                    print(f"[Agent] Ignoring invalid model_number: {value!r}")
+                    continue
+                if key == "part_number" and not self._is_valid_part(value):
+                    print(f"[Agent] Ignoring invalid part_number: {value!r}")
+                    continue
+
                 existing = state.get(key)
-                
+
                 if not existing:
                     # No existing value, set new one
                     state[key] = value
@@ -275,6 +302,7 @@ class AgentNodes:
             "user_query": user_query,
             "symptoms": symptoms,
             "appliance_type": state.get("appliance_type"),
+            "brand": state.get("brand"),
             "model_number": state.get("model_number"),
             "available_products": [
                 {
@@ -291,15 +319,17 @@ class AgentNodes:
         # LLM recommendation prompt
         system_prompt = """You are an expert appliance repair technician helping customers find the right parts.
 
-Analyze the user's query and the available products. Recommend the TOP 3 most relevant parts.
+Analyze the user's query and the available products. Recommend the TOP 3 most relevant parts,
+listed in order from best match to worst.
 
-Consider:
-1. How well the part matches the symptoms
-2. Price (prefer affordable options)
-3. Brand reputation
-4. Availability
+Consider (in priority order):
+1. Brand: if the customer named a brand, that brand's parts must come first. Never rank a
+   different brand above the customer's brand.
+2. How well the part matches the symptoms
+3. Availability (prefer in-stock)
+4. Price (prefer affordable options)
 
-Respond in JSON:
+Respond in JSON with recommended_parts ordered best-first:
 {
   "recommended_parts": [
     {
@@ -310,36 +340,45 @@ Respond in JSON:
   ],
   "overall_reasoning": "Based on your symptoms, these parts are most likely to solve your problem..."
 }"""
-        
-        response = await self.llm.generate(
+
+        # Use generate_json so fenced/markdown-wrapped replies still parse
+        # (the raw json.loads here used to fail on ```json fences and silently
+        # fall back to search order, which surfaced a GE part first for a
+        # Whirlpool question).
+        recommendations = await self.llm.generate_json(
             prompt=f"Context: {json.dumps(context, indent=2)}",
             system_prompt=system_prompt,
-            temperature=0.3,
-            max_tokens=500
         )
-        
-        # Parse recommendations
-        try:
-            recommendations = json.loads(response)
-            
-            recommended_part_numbers = [
-                r["part_number"] for r in recommendations["recommended_parts"]
-            ]
-            
-            # Get full details for recommended parts
-            recommended_parts = [
-                p for p in search_results 
-                if p["part_number"] in recommended_part_numbers
-            ]
-            
-            state["recommended_parts"] = recommended_parts
-            state["reasoning"] = recommendations.get("overall_reasoning", "")
-            
-        except:
-            # Fallback: recommend top 3 by search ranking
-            state["recommended_parts"] = search_results[:3]
-            state["reasoning"] = "Here are the most relevant parts based on your search."
-        
+
+        by_part = {p["part_number"]: p for p in search_results}
+        ranked_numbers = [
+            r.get("part_number")
+            for r in (recommendations.get("recommended_parts") or [])
+            if isinstance(r, dict) and r.get("part_number") in by_part
+        ]
+
+        if ranked_numbers:
+            # LLM's picks first (in its order), then any remaining candidates.
+            chosen = [by_part[pn] for pn in ranked_numbers]
+            rest = [p for p in search_results if p["part_number"] not in ranked_numbers]
+            ranked = chosen + rest
+            reasoning = recommendations.get("overall_reasoning", "")
+        else:
+            # Parse failed or model returned nothing usable: fall back to search
+            # order, but without the misleading "most relevant" boilerplate line.
+            print("[Recommend] LLM ranking unavailable, using search order")
+            ranked = list(search_results)
+            reasoning = ""
+
+        # Deterministic brand guard: float the customer's brand to the top so a
+        # branded question never leads with another brand, whatever the LLM did.
+        brand = (state.get("brand") or "").lower()
+        if brand:
+            ranked = sorted(ranked, key=lambda p: 0 if (p.get("brand") or "").lower() == brand else 1)
+
+        state["recommended_parts"] = ranked[:3]
+        state["reasoning"] = reasoning
+
         return state
     def _clean_product_name(self, name: str, brand: str = None) -> str:
         """
@@ -385,12 +424,29 @@ Respond in JSON:
     
     async def generate_response(self, state: AgentState) -> AgentState:
         """Node 5: Generate final conversational response"""
-        
+
         intent = state["intent"]
         recommended_parts = state.get("recommended_parts", [])
         reasoning = state.get("reasoning", "")
         user_query = state["user_query"]
-        
+
+        # Scope guard: only refrigerators and dishwashers are in scope. If the
+        # classifier identified some OTHER appliance (oven, washer, dryer...),
+        # decline politely instead of returning a confusing "need more info".
+        # (Allowlist check, so "dishwasher" — which contains "washer" — is safe.)
+        appliance = (state.get("appliance_type") or "").strip().lower()
+        in_scope = ("refrigerator", "fridge", "dishwasher", "dish washer", "freezer")
+        if appliance and not any(k in appliance for k in in_scope):
+            named = state.get("appliance_type")
+            state["intent"] = "general_question"
+            response = (
+                "I'm the PartSelect Repair Assistant, so I can only help with "
+                f"**refrigerator** and **dishwasher** parts and repairs. I can't help with your {named}. "
+                "Is there a fridge or dishwasher issue I can help you with?"
+            )
+            state["messages"].append({"role": "assistant", "content": response})
+            return state
+
         # Build response based on intent
         if intent == "search_part":
             response = await self._generate_search_response(
@@ -637,20 +693,21 @@ Respond in JSON:
         # SPECIAL CASE: Check if query contains another part number
         # ========================================
         query_codes = re.findall(r"\b(PS\d{7,8}|AP\d{7,8}|W\d{8})\b", query, re.IGNORECASE)
-        
-        if part and len(query_codes) > 0:
-            other_part = query_codes[0].upper()
-            
-            # Check if the other part is in replace_parts
-            if part.get('specifications'):
+
+        if part:
+            # The user may name two part numbers ("is X interchangeable with Y").
+            # query_codes[0] is usually the part we already resolved, so compare
+            # against the OTHER code, not the part itself.
+            others = [c.upper() for c in query_codes if c.upper() != (part_number or "").upper()]
+
+            if others and part.get('specifications'):
+                other_part = others[0]
                 specs = json.loads(part['specifications']) if isinstance(part['specifications'], str) else part['specifications']
-                
+
                 if specs.get('replace_parts'):
                     replace_parts_upper = [p.upper() for p in specs['replace_parts']]
-                    
+
                     if other_part in replace_parts_upper:
-                        clean_name = self._clean_product_name(part['name'], part['brand'])
-                        
                         return f""" **Yes, {other_part} and {part_number} are compatible!**
 
 These parts are listed as compatible replacements for each other.
@@ -802,56 +859,95 @@ These parts are listed as compatible replacements for each other.
         return response
 
 
+    # Whirlpool owns several nameplates; the catalog labels them all "Whirlpool",
+    # so treat them as one family when matching a model to a part.
+    _BRAND_FAMILIES = [
+        {"whirlpool", "maytag", "kitchenaid", "amana", "roper", "admiral", "estate", "jenn-air"},
+    ]
+
+    # Model-number prefix -> brand. Longest prefix wins (sorted at match time).
+    _MODEL_PREFIXES = [
+        ("WDT", "Whirlpool"), ("WDF", "Whirlpool"), ("WRS", "Whirlpool"), ("WRF", "Whirlpool"),
+        ("WRX", "Whirlpool"), ("WRB", "Whirlpool"), ("WTW", "Whirlpool"),
+        ("MDB", "Whirlpool"), ("MFI", "Whirlpool"), ("MVW", "Whirlpool"),
+        ("KDTM", "Whirlpool"), ("KDFE", "Whirlpool"), ("KDPE", "Whirlpool"),
+        ("RF", "Samsung"), ("RS", "Samsung"), ("RT", "Samsung"), ("DW", "Samsung"),
+        ("LDF", "LG"), ("LDT", "LG"), ("LFX", "LG"), ("LMX", "LG"), ("LRF", "LG"),
+        ("FGID", "Frigidaire"), ("FFHS", "Frigidaire"), ("FGHD", "Frigidaire"),
+        ("FFID", "Frigidaire"), ("FGSS", "Frigidaire"),
+        ("SHE", "Bosch"), ("SHX", "Bosch"), ("SHP", "Bosch"), ("SMS", "Bosch"), ("SPE", "Bosch"),
+        ("GDF", "GE"), ("GDT", "GE"), ("GSE", "GE"), ("PDT", "GE"), ("GNE", "GE"), ("GFE", "GE"),
+        ("W", "Whirlpool"), ("M", "Whirlpool"), ("K", "Whirlpool"),
+        ("L", "LG"), ("F", "Frigidaire"), ("S", "Bosch"), ("G", "GE"), ("R", "Samsung"),
+    ]
+
+    def _model_brand(self, model_number: str) -> Optional[str]:
+        """Best-effort brand from a model-number prefix (longest prefix wins)."""
+        code = (model_number or "").upper()
+        for prefix, brand in sorted(self._MODEL_PREFIXES, key=lambda kv: len(kv[0]), reverse=True):
+            if code.startswith(prefix):
+                return brand
+        return None
+
+    def _same_brand_family(self, a: str, b: str) -> bool:
+        a, b = (a or "").lower(), (b or "").lower()
+        if not a or not b:
+            return False
+        if a == b:
+            return True
+        return any(a in fam and b in fam for fam in self._BRAND_FAMILIES)
+
     def _is_universal_part(self, part: Dict, model_number: str) -> bool:
-        """
-        Check if part is universal/compatible with many models
-        """
+        """Honest 'likely fits' test (not a guarantee). If we can identify the
+        model's brand, it's likely only when it shares a brand family with the
+        part. If the model's brand is unknown, a universal filter (many
+        cross-referenced replacements) is broadly compatible."""
         import json
-        
-        part_name_lower = part['name'].lower()
-        
-        # Universal filters are almost always compatible within brand
-        if 'filter' in part_name_lower:
-            # Check if model brand matches part brand
-            model_upper = model_number.upper()
-            brand_lower = part['brand'].lower()
-            
-            # Brand prefixes
-            brand_prefixes = {
-                'whirlpool': ['W', 'WR', 'WD', 'WG'],
-                'samsung': ['S', 'RF', 'RS'],
-                'lg': ['L', 'LF', 'LM'],
-                'ge': ['G', 'GE', 'GD'],
-            }
-            
-            if brand_lower in brand_prefixes:
-                for prefix in brand_prefixes[brand_lower]:
-                    if model_upper.startswith(prefix):
-                        print(f"[Compatibility] Universal filter match: {part['brand']} part for {model_number}")
-                        return True
-            
-            # Check if many replace parts (indicates universal)
-            if part.get('specifications'):
-                specs = json.loads(part['specifications']) if isinstance(part['specifications'], str) else part['specifications']
-                if specs.get('replace_parts') and len(specs['replace_parts']) > 5:
-                    return True
-        
+
+        model_brand = self._model_brand(model_number)
+        part_brand = part.get("brand")
+
+        # Brand known on both sides: compatible only within the same family.
+        # This stops a Whirlpool filter from claiming to fit a Samsung model.
+        if model_brand and part_brand:
+            same = self._same_brand_family(model_brand, part_brand)
+            print(f"[Compatibility] Brand check: {part_brand} part vs {model_number} ({model_brand}) -> {'match' if same else 'mismatch'}")
+            return same
+
+        # Model brand unknown: fall back to the universal-filter signal only.
+        part_name_lower = (part.get("name") or "").lower()
+        if "filter" in part_name_lower and part.get("specifications"):
+            specs = json.loads(part["specifications"]) if isinstance(part["specifications"], str) else part["specifications"]
+            if specs.get("replace_parts") and len(specs["replace_parts"]) > 5:
+                return True
+
         return False
     async def _generate_general_response(self, query: str) -> str:
         """Generate response for general questions"""
         
-        # Use LLM for general conversation
-        system_prompt = """You are a helpful appliance parts assistant. 
-Answer the user's question in a friendly, conversational way. 
-If you don't know something, admit it and offer to help them search for parts instead."""
+        # Use LLM for general conversation, but keep the assistant in scope.
+        system_prompt = """You are the PartSelect Repair Assistant. Your ONLY domain is
+refrigerator and dishwasher parts, diagnosis, compatibility, and installation.
+
+SCOPE RULES:
+- If the question is about refrigerator or dishwasher parts, repairs, symptoms,
+  compatibility, or installation, answer it helpfully and concisely (2-3 short paragraphs,
+  markdown allowed).
+- If the question is OUTSIDE that scope (weather, general chit-chat, other appliances like
+  ovens/washers/dryers, coding, math, anything unrelated), politely decline in one or two
+  sentences and steer back. For example: "I'm the PartSelect assistant, so I can only help
+  with refrigerator and dishwasher parts and repairs. Is there an appliance issue I can help
+  with?" Do NOT attempt to answer the off-topic question.
+- Never invent part numbers, prices, or model compatibility. If you don't know, say so and
+  offer to search the catalog."""
 
         response = await self.llm.generate(
             prompt=query,
             system_prompt=system_prompt,
-            temperature=0.7,
+            temperature=0.5,
             max_tokens=300
         )
-        
+
         return response
     
     async def _generate_llm_response(

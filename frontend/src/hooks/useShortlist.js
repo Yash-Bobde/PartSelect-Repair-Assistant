@@ -1,28 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
-const STORAGE_KEY = 'partselect.shortlist';
-
-function load() {
-  try {
-    const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
-    return Array.isArray(saved) ? saved : [];
-  } catch {
-    return [];
-  }
-}
-
-// Parts the customer is collecting for this repair. Kept in localStorage so a
-// page refresh doesn't lose them.
+// Parts the customer is collecting for this repair. Kept in memory only, so a
+// page refresh clears the shortlist together with the chat — the whole "Your
+// repair" workspace resets to a clean slate rather than leaving a stale cart.
 export function useShortlist() {
-  const [items, setItems] = useState(load);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-    } catch {
-      // Storage can be unavailable (private mode); the list still works in memory.
-    }
-  }, [items]);
+  const [items, setItems] = useState([]);
 
   const has = useCallback((partNumber) => items.some((p) => p.partNumber === partNumber), [items]);
 

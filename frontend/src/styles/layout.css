@@ -11,6 +11,8 @@
 /* ---------- Top bar ---------- */
 
 .topbar {
+  position: relative;
+  z-index: 5;
   flex: none;
   display: flex;
   align-items: center;
@@ -20,6 +22,7 @@
   padding: 0 16px 0 20px;
   background: var(--header-bg);
   border-bottom: 1px solid var(--border-strong);
+  box-shadow: 0 1px 0 rgba(18, 19, 15, 0.04), 0 6px 16px rgba(18, 19, 15, 0.05);
 }
 
 .brand {
@@ -255,6 +258,13 @@
   border-radius: var(--radius);
   background: var(--info-bg);
   color: var(--on-info);
+  transition: background-color 0.3s var(--ease-out), color 0.3s var(--ease-out);
+}
+
+/* Once we know the appliance, the tile "fills in" with the brand accent. */
+.appliance-card__icon--active {
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 .appliance-card__facts {

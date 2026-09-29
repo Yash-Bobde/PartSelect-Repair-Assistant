@@ -101,18 +101,33 @@ function AssistantMessage({ message, isLatest }) {
   );
 }
 
-function TypingIndicator() {
+function LoadingSkeleton() {
   return (
     <motion.div className="msg msg--assistant" {...enter}>
       <Avatar />
       <div className="msg__body">
-        <div className="typing" role="status">
-          <span className="typing__dots" aria-hidden="true">
-            <span />
-            <span />
-            <span />
+        <div className="skeletons" role="status" aria-label="Working on it">
+          <span className="skeletons__caption">
+            <span className="typing__dots" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
+            Working on it…
           </span>
-          <span className="typing__label">Working on it…</span>
+          <div className="skeleton-grid" aria-hidden="true">
+            {[0, 1, 2].map((i) => (
+              <div className="skeleton-card" key={i}>
+                <div className="skeleton-card__thumb sk" />
+                <div className="skeleton-card__body">
+                  <div className="sk sk--title" />
+                  <div className="sk sk--line sk--short" />
+                  <div className="sk sk--line" />
+                  <div className="sk sk--btn" />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </motion.div>
@@ -133,7 +148,7 @@ export function MessageList({ messages, loading }) {
           <AssistantMessage key={message.id} message={message} isLatest={message.id === lastId && !loading} />
         )
       )}
-      {loading && <TypingIndicator />}
+      {loading && <LoadingSkeleton />}
     </div>
   );
 }

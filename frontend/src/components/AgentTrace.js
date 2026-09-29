@@ -1,4 +1,4 @@
-import { Fragment, useId, useMemo, useState } from 'react';
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronDown, ChevronRight, Workflow } from 'lucide-react';
 import { PIPELINE, buildTrace } from '../lib/replies';
@@ -7,10 +7,19 @@ import { PIPELINE, buildTrace } from '../lib/replies';
 export function AgentTrace({ message, parts }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
+  const rootRef = useRef(null);
   const { ran, steps } = useMemo(() => buildTrace(message, parts), [message, parts]);
 
+  // When expanded, bring the panel fully into view (it otherwise opens behind
+  // the sticky composer at the bottom of the chat column).
+  useEffect(() => {
+    if (!open) return undefined;
+    const t = setTimeout(() => rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }), 200);
+    return () => clearTimeout(t);
+  }, [open]);
+
   return (
-    <div className="trace">
+    <div className="trace" ref={rootRef}>
       <button
         type="button"
         className="trace__toggle"
