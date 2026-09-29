@@ -1,0 +1,78 @@
+version: '3.8'
+
+
+
+services:
+  # PostgreSQL 
+  postgres:
+    image: postgres:15-alpine          
+    container_name: partselect_postgres 
+    environment:
+     
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: partselect
+    ports:
+      - "5432:5432"                    # host_port:container_port
+      
+    volumes:
+      # Volume 1: Persist data 
+      - postgres_data:/var/lib/postgresql/data
+      # Volume 2: Auto-run init script on first start
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
+     
+    healthcheck:
+
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s                    # Check every 10 seconds
+      timeout: 5s
+      retries: 5
+    networks:
+      - partselect_network             # Put all services on same network
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: partselect_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data               
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - partselect_network
+
+  # ChromaDB 
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: partselect_chromadb
+    ports:
+      - "8001:8000"                  
+    volumes:
+      - chroma_data:/chroma/chroma    
+    environment:
+      - IS_PERSISTENT=TRUE             # Save to disk
+      - PERSIST_DIRECTORY=/chroma/chroma
+      - ANONYMIZED_TELEMETRY=False     # Disable usage tracking
+    networks:
+      - partselect_network
+
+
+volumes:
+  postgres_data:
+    driver: local                      # Store on your machine
+  redis_data:
+    driver: local
+  chroma_data:
+    driver: local
+
+# Network - allows containers to talk to each other
+networks:
+  partselect_network:
+    driver: bridge                   
