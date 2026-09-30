@@ -1,10 +1,28 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
-// Parts the customer is collecting for this repair. Kept in memory only, so a
-// page refresh clears the shortlist together with the chat — the whole "Your
-// repair" workspace resets to a clean slate rather than leaving a stale cart.
+// Legacy key: the shortlist used to be persisted here. We now keep it in memory
+// only (see below), so purge any previously-saved list on load.
+const LEGACY_STORAGE_KEY = 'partselect.shortlist';
+
+// Parts the customer is collecting for this repair.
+//
+// Kept in memory only — NOT persisted. The rest of the repair (the chat, the
+// backend conversation id, and the appliance/problem panel derived from the
+// messages) is all ephemeral and resets on a page refresh, so the shortlist
+// resets with it. Otherwise a refresh would show a stale parts list attached to
+// a conversation that's already gone. Use "New repair" or just reload to clear.
 export function useShortlist() {
   const [items, setItems] = useState([]);
+
+  // One-time cleanup so a refresh no longer resurrects a previous repair's parts
+  // from the old persisted list.
+  useEffect(() => {
+    try {
+      window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+    } catch {
+      // Storage can be unavailable (private mode) — nothing to clean up then.
+    }
+  }, []);
 
   const has = useCallback((partNumber) => items.some((p) => p.partNumber === partNumber), [items]);
 
