@@ -47,6 +47,15 @@ class AgentNodes:
             return False
         return bool(re.match(r"^(PS\d{5,}|AP\d{5,}|W\d{8})$", value.strip().upper()))
 
+    @staticmethod
+    def _normalize_appliance(value: str) -> str:
+        """Refrigerator components the LLM sometimes names as the appliance
+        ('ice maker', 'freezer', 'water dispenser') count as 'refrigerator', so the
+        scope guard doesn't decline them and the category filter still matches."""
+        if re.search(r"\bice(?! cream)|freezer|fridge|refrigerator|water dispenser", value.strip().lower()):
+            return "refrigerator"
+        return value
+
     async def understand_query(self, state: AgentState) -> AgentState:
         """Node 1: Understand query and merge with existing context"""
         
@@ -96,6 +105,8 @@ class AgentNodes:
                 if key == "part_number" and not self._is_valid_part(value):
                     print(f"[Agent] Ignoring invalid part_number: {value!r}")
                     continue
+                if key == "appliance_type" and isinstance(value, str):
+                    value = self._normalize_appliance(value)
 
                 existing = state.get(key)
 
