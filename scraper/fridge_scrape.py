@@ -145,35 +145,41 @@ def scrape_part_info(driver, part_name, product_url):
     if not safe_navigate(driver, product_url):
         print(f"✗ Failed to navigate to product {part_name}")
         return data
-    
-    # Extract all data fields (same as before)
-    product_id_elements = wait_and_find_elements(driver, By.CSS_SELECTOR, "span[itemprop='productID']")
+
+    extract_part_fields(driver, data)
+    print(f"✓ Scraped: {data['part_name']} | Price: {data['part_price']} | ID: {data['part_id']}")
+    return data
+
+
+def extract_part_fields(driver, data, timeout=10):
+    """Fill `data` from the product page the driver is already on."""
+    product_id_elements = wait_and_find_elements(driver, By.CSS_SELECTOR, "span[itemprop='productID']", timeout)
     if product_id_elements:
         data['part_id'] = safe_get_text(product_id_elements[0])
-    
-    brand_element = wait_and_find_element(driver, By.CSS_SELECTOR, "span[itemprop='brand'] span[itemprop='name']")
+
+    brand_element = wait_and_find_element(driver, By.CSS_SELECTOR, "span[itemprop='brand'] span[itemprop='name']", timeout)
     if brand_element:
         data['brand'] = safe_get_text(brand_element)
-    
-    availability_element = wait_and_find_element(driver, By.CSS_SELECTOR, "span[itemprop='availability']")
+
+    availability_element = wait_and_find_element(driver, By.CSS_SELECTOR, "span[itemprop='availability']", timeout)
     if availability_element:
         data['availability'] = safe_get_text(availability_element)
-    
-    video_container = wait_and_find_element(driver, By.CSS_SELECTOR, "div.yt-video")
+
+    video_container = wait_and_find_element(driver, By.CSS_SELECTOR, "div.yt-video", timeout)
     if video_container:
         video_id = safe_get_attribute(video_container, "data-yt-init")
         if video_id:
             data['install_video_url'] = f"https://www.youtube.com/watch?v={video_id}"
-    
-    mpn_elements = wait_and_find_elements(driver, By.CSS_SELECTOR, "span[itemprop='mpn']")
+
+    mpn_elements = wait_and_find_elements(driver, By.CSS_SELECTOR, "span[itemprop='mpn']", timeout)
     if mpn_elements:
         data['mpn_id'] = safe_get_text(mpn_elements[0])
-    
-    replace_parts_elements = wait_and_find_elements(driver, By.CSS_SELECTOR, "div[data-collapse-container='{\"targetClassToggle\":\"d-none\"}']")
+
+    replace_parts_elements = wait_and_find_elements(driver, By.CSS_SELECTOR, "div[data-collapse-container='{\"targetClassToggle\":\"d-none\"}']", timeout)
     if replace_parts_elements:
         data['replace_parts'] = safe_get_text(replace_parts_elements[0])
-    
-    wait = WebDriverWait(driver, 10)
+
+    wait = WebDriverWait(driver, timeout)
     try:
         price_container = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "span.price.pd__price")))
         if price_container:
@@ -184,7 +190,7 @@ def scrape_part_info(driver, part_name, product_url):
     except:
         pass
     
-    pd_wrap = wait_and_find_element(driver, By.CSS_SELECTOR, "div.pd__wrap.row")
+    pd_wrap = wait_and_find_element(driver, By.CSS_SELECTOR, "div.pd__wrap.row", timeout)
     if pd_wrap:
         info_divs = pd_wrap.find_elements(By.CSS_SELECTOR, "div.col-md-6.mt-3")
         for div in info_divs:
@@ -197,7 +203,7 @@ def scrape_part_info(driver, part_name, product_url):
             elif "This part works with the following products:" in header_text:
                 data['product_types'] = extract_text_after_header(div, header_text)
     
-    install_container = wait_and_find_element(driver, By.CSS_SELECTOR, "div.d-flex.flex-lg-grow-1.col-lg-7.col-12.justify-content-lg-between.mt-lg-0.mt-2")
+    install_container = wait_and_find_element(driver, By.CSS_SELECTOR, "div.d-flex.flex-lg-grow-1.col-lg-7.col-12.justify-content-lg-between.mt-lg-0.mt-2", timeout)
     if install_container:
         d_flex_divs = install_container.find_elements(By.CLASS_NAME, "d-flex")
         if len(d_flex_divs) >= 2:
@@ -207,9 +213,6 @@ def scrape_part_info(driver, part_name, product_url):
             time_p = d_flex_divs[1].find_element(By.TAG_NAME, "p")
             if time_p:
                 data['install_time'] = safe_get_text(time_p)
-    
-    print(f"✓ Scraped: {data['part_name']} | Price: {data['part_price']} | ID: {data['part_id']}")
-    return data
 
 
 def process_category_page(driver, link_url):
@@ -428,7 +431,7 @@ def scrape_all_parts(base_url, max_brands=10):
             print("✗ No brand links found")
             return all_parts_data
         
-        brand_links = brand_links[10]
+        brand_links = brand_links[:max_brands]
         print(f"\n{'='*60}")
         print(f"Processing {len(brand_links)} brands")
         print(f"{'='*60}\n")

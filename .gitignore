@@ -14,3 +14,5 @@ venv/
 # Data
 data/raw/*
 data/processed/*
+# Scraper output
+scraper/scraped_data/

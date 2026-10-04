@@ -344,7 +344,7 @@ def save_brand_data(brand_data, brand_name, output_dir="scraped_data"):
 
 def process_brand(brand_url, max_retries=3):
     """Process a brand page and its related pages."""
-    brand_name = brand_url.split("/")[-1].replace("-Refrigerator-Parts.htm", "")
+    brand_name = brand_url.split("/")[-1].replace("-Dishwasher-Parts.htm", "")
     brand_parts_data = []
     driver = None
     
@@ -428,7 +428,7 @@ def scrape_all_parts(base_url, max_brands=10):
             print("✗ No brand links found")
             return all_parts_data
         
-        brand_links = brand_links[10]
+        brand_links = brand_links[:max_brands]
         print(f"\n{'='*60}")
         print(f"Processing {len(brand_links)} brands")
         print(f"{'='*60}\n")
@@ -474,8 +474,8 @@ def scrape_all_parts(base_url, max_brands=10):
 
 
 if __name__ == "__main__":
-    base_url = "https://www.partselect.com/Refrigerator-Parts.htm"
-    print("\n🚀 Starting refrigerator parts scraper (first 10 brands)...")
+    base_url = "https://www.partselect.com/Dishwasher-Parts.htm"
+    print("\n🚀 Starting dishwasher parts scraper (first 10 brands)...")
     
     parts_data = scrape_all_parts(base_url, max_brands=10)
     
