@@ -117,25 +117,13 @@ CREATE TRIGGER update_installation_guides_updated_at BEFORE UPDATE ON installati
 CREATE TRIGGER update_conversations_updated_at BEFORE UPDATE ON conversations
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Seed data
-INSERT INTO products (part_number, name, description, category, price, brand, in_stock)
-VALUES 
-    ('PS11752778', 'Ice Maker Assembly', 
-     'Replacement ice maker assembly for refrigerators. Includes mounting bracket and wire harness.',
-     'refrigerator', 89.99, 'Whirlpool', true),
-    ('WPW10408179', 'Water Inlet Valve', 
-     'Water inlet valve controls water flow to ice maker and dispenser.',
-     'refrigerator', 45.50, 'Whirlpool', true)
-ON CONFLICT (part_number) DO NOTHING;
-
-INSERT INTO compatibility (part_number, model_number, brand, compatible, confidence_score, source)
-VALUES
-    ('PS11752778', 'WDT780SAEM1', 'Whirlpool', true, 1.0, 'manufacturer'),
-    ('PS11752778', 'WDT750SAHZ0', 'Whirlpool', true, 1.0, 'manufacturer')
-ON CONFLICT (part_number, model_number) DO NOTHING;
+-- No seed rows here: the catalog comes from scripts/load_to_database.py and the
+-- curated compatibility rows from scripts/seed_compatibility.sql. (The old
+-- placeholder seeds made up an "Ice Maker Assembly" for PS11752778, which is
+-- really a refrigerator door shelf bin, and claimed it fits dishwasher models.)
 
 -- Success message
 DO $$
 BEGIN
-    RAISE NOTICE '✓ Database initialized successfully with schema and seed data!';
+    RAISE NOTICE '✓ Database schema initialized!';
 END $$;

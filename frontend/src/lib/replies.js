@@ -37,6 +37,8 @@ export function compatVerdict(content = '') {
   if (pair) return { kind: 'yes', pair: [pair[1], pair[2]] };
   if (content.includes('should be compatible')) return { kind: 'likely' };
   if (content.includes('Yes, this part is compatible')) return { kind: 'yes' };
+  const other = content.match(/This is a (\w+) part, and \S+ looks like a (\w+) model/);
+  if (content.includes('is not compatible with your')) return { kind: 'no', partType: other?.[1], modelType: other?.[2] };
   if (content.includes("couldn't confirm compatibility")) return { kind: 'unknown' };
   return null;
 }

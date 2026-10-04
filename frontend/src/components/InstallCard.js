@@ -1,8 +1,8 @@
 import { useId, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Clock, Gauge, Hammer, Play } from 'lucide-react';
+import { Play } from 'lucide-react';
 import { useGuide } from '../hooks/useGuide';
-import { capitalize, formatPrice } from '../lib/parts';
+import { formatPrice } from '../lib/parts';
 import { Markdown } from './Markdown';
 import { PartActions, PartRow, StockPill } from './PartCard';
 
@@ -62,38 +62,11 @@ function Checklist() {
   );
 }
 
-// Compact time / difficulty / tools list, shown under the video on the part detail card.
-export function GuideFacts({ partNumber }) {
-  const { status, guide } = useGuide(partNumber);
-  if (status !== 'ready') return null;
-  const tools = Array.isArray(guide.tools_required) ? guide.tools_required : [];
-
-  return (
-    <ul className="guide-facts" aria-label="Installation at a glance">
-      {guide.estimated_time_minutes > 0 && (
-        <li>
-          <Clock size={15} />
-          About {guide.estimated_time_minutes} min to install
-        </li>
-      )}
-      {guide.difficulty && (
-        <li>
-          <Gauge size={15} />
-          {capitalize(guide.difficulty)} difficulty
-        </li>
-      )}
-      {tools.length > 0 && (
-        <li>
-          <Hammer size={15} />
-          {tools.map(capitalize).join(', ')}
-        </li>
-      )}
-    </ul>
-  );
-}
-
+// The guide's difficulty, time and tools are not shown: the scraper got "N/A"
+// for both fields on every part, so the pipeline fills in defaults (moderate,
+// 30 min, ["screwdriver"]). Only the install video is real data.
 export function InstallCard({ part, fallback }) {
-  const { status, guide, videoId } = useGuide(part.partNumber);
+  const { status, videoId } = useGuide(part.partNumber);
 
   if (status === 'loading') {
     return (
@@ -114,8 +87,6 @@ export function InstallCard({ part, fallback }) {
       </div>
     );
   }
-
-  const tools = Array.isArray(guide.tools_required) ? guide.tools_required : [];
 
   return (
     <motion.article
@@ -140,36 +111,6 @@ export function InstallCard({ part, fallback }) {
       </header>
 
       {videoId && <LiteYouTube id={videoId} title={`How to install ${part.title} (${part.partNumber})`} />}
-
-      <dl className="facts">
-        {guide.estimated_time_minutes > 0 && (
-          <div className="fact">
-            <dt>
-              <Clock size={16} />
-              Time
-            </dt>
-            <dd>About {guide.estimated_time_minutes} min</dd>
-          </div>
-        )}
-        {guide.difficulty && (
-          <div className="fact">
-            <dt>
-              <Gauge size={16} />
-              Difficulty
-            </dt>
-            <dd>{capitalize(guide.difficulty)}</dd>
-          </div>
-        )}
-        {tools.length > 0 && (
-          <div className="fact">
-            <dt>
-              <Hammer size={16} />
-              Tools
-            </dt>
-            <dd>{tools.map(capitalize).join(', ')}</dd>
-          </div>
-        )}
-      </dl>
 
       <Checklist />
       <PartActions part={part} showInstall={false} />

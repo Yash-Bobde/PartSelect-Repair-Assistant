@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { CircleCheck, CircleHelp, ShieldCheck } from 'lucide-react';
+import { CircleCheck, CircleHelp, CircleX, ShieldCheck } from 'lucide-react';
 import { PartActions, PartRow } from './PartCard';
 
 // Wording follows the backend's reasons for each verdict
@@ -19,6 +19,17 @@ function describe(verdict, part, model) {
       icon: CircleCheck,
       title: `Fits your ${model}`,
       body: 'Your model number appears in this part’s compatibility data.',
+    };
+  }
+  if (verdict.kind === 'no') {
+    return {
+      tone: 'no',
+      icon: CircleX,
+      title: `Doesn’t fit your ${model}`,
+      body:
+        verdict.partType && verdict.modelType
+          ? `This is a ${verdict.partType} part, and ${model} looks like a ${verdict.modelType} model.`
+          : 'This part is for a different appliance than your model.',
     };
   }
   if (verdict.kind === 'likely') {

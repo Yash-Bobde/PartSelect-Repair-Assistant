@@ -1,6 +1,5 @@
 import { motion } from 'framer-motion';
 import { capitalize, formatPrice } from '../lib/parts';
-import { GuideFacts } from './InstallCard';
 import { PartActions, StockPill, VideoThumb } from './PartCard';
 
 const SHOWN_REPLACES = 8;
@@ -17,7 +16,15 @@ export function PartDetail({ part }) {
     >
       <div className="detail__media">
         <VideoThumb part={part} />
-        <GuideFacts partNumber={part.partNumber} />
+        {part.replaces.length > 0 && (
+          <section className="detail__section">
+            <h4>Also replaces</h4>
+            <p className="replaces mono">
+              {part.replaces.slice(0, SHOWN_REPLACES).join(', ')}
+              {moreReplaces > 0 && <span className="replaces__more"> +{moreReplaces} more</span>}
+            </p>
+          </section>
+        )}
       </div>
 
       <div className="detail__main">
@@ -44,16 +51,6 @@ export function PartDetail({ part }) {
                 </li>
               ))}
             </ul>
-          </section>
-        )}
-
-        {part.replaces.length > 0 && (
-          <section className="detail__section">
-            <h4>Also replaces</h4>
-            <p className="replaces mono">
-              {part.replaces.slice(0, SHOWN_REPLACES).join(', ')}
-              {moreReplaces > 0 && <span className="replaces__more"> +{moreReplaces} more</span>}
-            </p>
           </section>
         )}
 

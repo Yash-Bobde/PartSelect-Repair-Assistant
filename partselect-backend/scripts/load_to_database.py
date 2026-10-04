@@ -48,9 +48,15 @@ async def load_products(conn: asyncpg.Connection, df: pd.DataFrame):
         ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11)
         ON CONFLICT (part_number) DO UPDATE SET
             name = EXCLUDED.name,
+            description = EXCLUDED.description,
+            category = EXCLUDED.category,
             price = EXCLUDED.price,
             in_stock = EXCLUDED.in_stock,
-            description = EXCLUDED.description,
+            image_urls = EXCLUDED.image_urls,
+            specifications = EXCLUDED.specifications,
+            rating = EXCLUDED.rating,
+            reviews_count = EXCLUDED.reviews_count,
+            brand = EXCLUDED.brand,
             updated_at = CURRENT_TIMESTAMP
     ''', records)
     
@@ -95,13 +101,16 @@ async def load_installation_guides(conn: asyncpg.Connection, df: pd.DataFrame):
             row['chromadb_doc_id']
         ))
     
-    await conn.executemany('''
-        INSERT INTO installation_guides (
-            part_number, difficulty, estimated_time_minutes,
-            tools_required, video_url, pdf_url, chromadb_doc_id
-        ) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
-        ON CONFLICT DO NOTHING
-    ''', records)
+    # Replace rather than append: the table has no natural unique key, so
+    # ON CONFLICT never fires and a re-run would duplicate every guide.
+    async with conn.transaction():
+        await conn.execute("DELETE FROM installation_guides")
+        await conn.executemany('''
+            INSERT INTO installation_guides (
+                part_number, difficulty, estimated_time_minutes,
+                tools_required, video_url, pdf_url, chromadb_doc_id
+            ) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
+        ''', records)
     
     print(f"✓ Loaded {len(records)} installation guides")
 
@@ -168,13 +177,15 @@ async def load_troubleshooting_kb(conn: asyncpg.Connection, df: pd.DataFrame):
             entry['chromadb_doc_id']
         ))
     
-    await conn.executemany('''
-        INSERT INTO troubleshooting_kb (
-            appliance_type, brand, issue_title, symptoms,
-            possible_causes, diagnostic_steps, recommended_parts, chromadb_doc_id
-        ) VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8)
-        ON CONFLICT DO NOTHING
-    ''', records)
+    # Replace rather than append (no natural unique key; see installation guides).
+    async with conn.transaction():
+        await conn.execute("DELETE FROM troubleshooting_kb")
+        await conn.executemany('''
+            INSERT INTO troubleshooting_kb (
+                appliance_type, brand, issue_title, symptoms,
+                possible_causes, diagnostic_steps, recommended_parts, chromadb_doc_id
+            ) VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8)
+        ''', records)
     
     print(f"✓ Loaded {len(records)} troubleshooting entries")
 
@@ -427,7 +438,7 @@ async def main():
         
         # Load troubleshooting KB (references products in recommended_parts)
         await load_troubleshooting_kb(conn, kb_df)
-        
+
         print("\n✓ PostgreSQL loading complete!")
     
     except Exception as e:

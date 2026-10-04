@@ -20,6 +20,10 @@ class AgentNodes:
     - Returns updated AgentState
     """
     
+    # Intents where a part number remembered from an earlier turn is the subject
+    # ("is it compatible with...", "how do I install it?").
+    _PART_INTENTS = ("product_details", "installation_help", "compatibility_check")
+
     def __init__(self):
         self.tools = SearchTools()
         self.intent_classifier = IntentClassifier()
@@ -47,7 +51,16 @@ class AgentNodes:
         """Node 1: Understand query and merge with existing context"""
         
         user_query = state["user_query"]
-        
+
+        # State is reloaded from Redis every turn, so clear the per-turn
+        # results. Otherwise a turn that finds nothing (e.g. an unknown part
+        # number) would skip `recommend` and answer with the previous turn's parts.
+        state["search_query"] = None
+        state["search_results"] = []
+        state["relevant_docs"] = []
+        state["recommended_parts"] = []
+        state["reasoning"] = ""
+
         # Build context from EXISTING state
         context = {
             "conversation_history": state.get("conversation_history", []),
@@ -111,7 +124,9 @@ class AgentNodes:
         """Node 2: Search for relevant products"""
         
         intent = state["intent"]
-        query = state.get("search_query", state["user_query"])
+        # `or`, not a .get() default: chat.py seeds search_query=None, so a
+        # default would never apply and the search would run on None.
+        query = state.get("search_query") or state["user_query"]
         category = state.get("appliance_type")
         part_number = state.get("part_number")
         brand = state.get("brand")
@@ -126,8 +141,11 @@ class AgentNodes:
         
         search_results = []
         
-        # PRIORITY 1: If we have a part number, get it directly
-        if part_number:
+        # PRIORITY 1: look the part up directly, but only when this turn is about
+        # a specific part. part_number persists across turns, so without this a
+        # later "show me water filters" or a new symptom would return the old part.
+        part_in_query = bool(part_number) and part_number.upper() in state["user_query"].upper()
+        if part_number and (intent in self._PART_INTENTS or part_in_query):
             print(f"[Search] Searching by part number: {part_number}")
             product = await self.tools.get_product_details(part_number)
             if product:
@@ -818,7 +836,16 @@ These parts are listed as compatible replacements for each other.
             response += f"Stock Status: {'✅ In stock' if part['in_stock'] else '❌ Out of stock'}\n"
             return response
         
-        # METHOD 2: Check if model is in replace_parts or specifications
+        # METHOD 2: Different appliance (a refrigerator part vs a dishwasher
+        # model). Brand-family matching alone would call these "likely".
+        model_appliance = self._model_appliance(model_number)
+        if model_appliance and part.get('category') and model_appliance != part['category']:
+            response += f"❌ **No, this part is not compatible with your {model_number}.**\n\n"
+            response += f"This is a {part['category']} part, and {model_number} looks like a {model_appliance} model.\n\n"
+            response += f"Stock Status: {'✅ In stock' if part['in_stock'] else '❌ Out of stock'}\n"
+            return response
+
+        # METHOD 3: Check if model is in replace_parts or specifications
         if part.get('specifications'):
             specs = json.loads(part['specifications']) if isinstance(part['specifications'], str) else part['specifications']
             
@@ -844,7 +871,7 @@ These parts are listed as compatible replacements for each other.
                 response += f"Stock Status: {'✅ In stock' if part['in_stock'] else '❌ Out of stock'}\n"
                 return response
         
-        # METHOD 3: Check reverse - is part number in model's compatible parts?
+        # METHOD 4: Check reverse - is part number in model's compatible parts?
         # (This requires querying by model number, which we might not have)
         
         # If no match found
@@ -880,6 +907,23 @@ These parts are listed as compatible replacements for each other.
         ("W", "Whirlpool"), ("M", "Whirlpool"), ("K", "Whirlpool"),
         ("L", "LG"), ("F", "Frigidaire"), ("S", "Bosch"), ("G", "GE"), ("R", "Samsung"),
     ]
+
+    # Model-number prefix -> appliance, only where the prefix is unambiguous
+    # (e.g. WDT = Whirlpool dishwasher, WRS = Whirlpool side-by-side fridge).
+    _MODEL_APPLIANCE = {
+        "dishwasher": ("WDT", "WDF", "MDB", "KDTM", "KDFE", "KDPE", "DW", "LDF", "LDT",
+                       "FGID", "FFID", "SHE", "SHX", "SHP", "SMS", "SPE", "GDF", "GDT", "PDT"),
+        "refrigerator": ("WRS", "WRF", "WRX", "WRB", "MFI", "RF", "RS", "RT", "LFX", "LMX",
+                         "LRF", "FFHS", "FGSS", "GSE", "GNE", "GFE"),
+    }
+
+    def _model_appliance(self, model_number: str) -> Optional[str]:
+        """Appliance type implied by a model-number prefix, or None if unknown."""
+        code = (model_number or "").upper()
+        for appliance, prefixes in self._MODEL_APPLIANCE.items():
+            if code.startswith(prefixes):
+                return appliance
+        return None
 
     def _model_brand(self, model_number: str) -> Optional[str]:
         """Best-effort brand from a model-number prefix (longest prefix wins)."""

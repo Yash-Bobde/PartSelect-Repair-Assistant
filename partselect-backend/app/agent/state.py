@@ -1,8 +1,7 @@
 
 
-from typing import TypedDict, List, Dict, Optional, Annotated
+from typing import TypedDict, List, Dict, Optional
 from datetime import datetime
-import operator
 
 
 class AgentState(TypedDict):
@@ -13,7 +12,10 @@ class AgentState(TypedDict):
     """
     
     # Conversation basics
-    messages: Annotated[List[Dict], operator.add]  # Chat history
+    # Chat history. Plain last-value channel, NOT an operator.add reducer: every
+    # node returns the full state, so an append-reducer would re-add the whole
+    # list at each node and double it (exponential growth across turns).
+    messages: List[Dict]
     user_query: str  # Current user message
     conversation_history: List[str]  # Previous user queries
     waiting_for: Optional[str]  
