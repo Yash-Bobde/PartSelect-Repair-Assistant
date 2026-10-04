@@ -14,6 +14,7 @@ import argparse
 import json
 import random
 import re
+import sys
 import time
 import winreg
 from pathlib import Path
@@ -22,6 +23,11 @@ import undetected_chromedriver as uc
 from bs4 import BeautifulSoup
 from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.common.by import By
+
+# Piped output on Windows falls back to cp1252, which can't print ✓ / ✗.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8")
 
 HERE = Path(__file__).resolve().parent
 RAW_DIR = HERE.parent / "partselect-backend" / "data" / "raw"

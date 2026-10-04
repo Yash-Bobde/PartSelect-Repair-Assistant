@@ -1,0 +1,7 @@
+# Scraper-only dependencies (kept out of the backend's requirements.txt;
+# selenium pins a newer urllib3 than the backend does).
+beautifulsoup4==4.15.0
+requests==2.34.2
+selenium==4.50.0
+setuptools==84.0.0  # undetected-chromedriver imports distutils, removed in Python 3.12
+undetected-chromedriver==3.5.5

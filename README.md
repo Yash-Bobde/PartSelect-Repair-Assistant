@@ -119,6 +119,20 @@ python scripts/load_to_database.py   # loads the catalog into PostgreSQL + Chrom
 python -m app.main                # http://localhost:8000
 ```
 
+On Windows (PowerShell, with Docker Desktop running), call the venv's Python directly:
+
+```powershell
+cd partselect-backend
+py -3.12 -m venv venv
+.\venv\Scripts\python.exe -m pip install -r requirements.txt
+
+copy .env.example .env            # then add your API key to .env
+.\venv\Scripts\python.exe scripts\load_to_database.py
+.\venv\Scripts\python.exe -m app.main
+```
+
+`load_to_database.py` also applies the curated compatibility rows in `scripts/seed_compatibility.sql`. It is safe to re-run: products are updated in place, and the guides, troubleshooting entries and ChromaDB collection are replaced. Restart the backend after re-running it, since the ChromaDB collection is recreated.
+
 ### 3. Frontend
 
 ```bash
@@ -148,7 +162,8 @@ The LLM client uses the OpenAI chat-completions format, so the `DEEPSEEK_*` vari
 The catalog data is included in the repo under `partselect-backend/data/` (raw scraped JSON in `data/raw/`, processed CSVs in `data/processed/`), so no scraping is required to run the app — `scripts/load_to_database.py` loads it into PostgreSQL and ChromaDB.
 
 - `scripts/process_all_data.py` regenerates the processed CSVs from the raw JSON.
-- `scraper/` contains the Selenium collectors used to gather the raw data.
+- `scraper/` contains the Selenium collectors used to gather the raw data (they have their own `scraper/requirements.txt`).
+- `scraper/refresh_parts.py` re-scrapes the product pages already in the catalog to refresh prices and stock (prices were last refreshed on 2026-10-04). It drives a visible Chrome window through PartSelect's Cloudflare check with `undetected-chromedriver` and takes about an hour for all 321 parts. Afterwards run `process_all_data.py` and `load_to_database.py`.
 
 ## Project structure
 

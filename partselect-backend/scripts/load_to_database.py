@@ -13,6 +13,11 @@ from pathlib import Path
 import json
 import sys
 
+# Piped output on Windows falls back to cp1252, which can't print the emoji below.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8")
+
 # Add parent directory to path for config import
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.config import get_settings
@@ -188,6 +193,17 @@ async def load_troubleshooting_kb(conn: asyncpg.Connection, df: pd.DataFrame):
         ''', records)
     
     print(f"✓ Loaded {len(records)} troubleshooting entries")
+
+
+async def load_compatibility_seed(conn: asyncpg.Connection):
+    """Apply the curated compatibility rows in seed_compatibility.sql (idempotent)"""
+    print("\n🔗 Loading compatibility seed...")
+
+    seed_sql = Path(__file__).with_name("seed_compatibility.sql").read_text(encoding="utf-8")
+    await conn.execute(seed_sql)
+
+    count = await conn.fetchval("SELECT COUNT(*) FROM compatibility")
+    print(f"✓ Compatibility rows: {count}")
 
 
 def load_chromadb_documents(df: pd.DataFrame, valid_part_numbers: set):
@@ -438,6 +454,9 @@ async def main():
         
         # Load troubleshooting KB (references products in recommended_parts)
         await load_troubleshooting_kb(conn, kb_df)
+
+        # Curated compatibility rows (reference products, so they go after them)
+        await load_compatibility_seed(conn)
 
         print("\n✓ PostgreSQL loading complete!")
     

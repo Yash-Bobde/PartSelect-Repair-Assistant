@@ -4,12 +4,19 @@ FastAPI Application - PartSelect Chat Agent
 Main entry point for the API
 """
 
+import sys
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.config import get_settings
 from app.core.llm import close_llm_client
 from app.core.database import close_db_pool
+
+# On Windows, piped or redirected output (e.g. when a tool starts the server)
+# falls back to cp1252, which can't print the emoji and arrows in our logs.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8")
 
 settings = get_settings()
 

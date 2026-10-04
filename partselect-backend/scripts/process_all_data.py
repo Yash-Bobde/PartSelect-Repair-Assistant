@@ -8,6 +8,12 @@ import pandas as pd
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 import re
+import sys
+
+# Piped output on Windows falls back to cp1252, which can't print the emoji below.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8")
 
 
 class DataProcessor:

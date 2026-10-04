@@ -1,60 +1,72 @@
-# Checkpoint: PartSelect case study (updated 2026-10-03)
+# Checkpoint: PartSelect case study (updated 2026-10-04, after the price refresh and interview-day fixes)
 
-Instalily PartSelect chat-agent case study, prepared for a mock interview.
+Instalily PartSelect chat-agent case study, prepared for a mock interview (original build: ~4 hours).
 GitHub: private repo `Yash-Bobde/PartSelect` (personal account). `partselect-backend/.env` is git-ignored and never committed; `.env.example` holds only a placeholder key.
 
 ## Status
 
-- `main` is at `10e1515` (2026-09-30). `improved-partselect` points at the same commit, so it is fully merged (no PR; pushed directly).
-- Commit `63748a5` fixed most of the backend problems from the first checkpoint (see below). Those fixes were checked by reading the code, **not** by running the app afterwards.
-- Frontend redesign is done and verified (light/dark, desktop and side-panel widths, all intents); `63748a5` and `10e1515` added polish (shortlist is now memory-only).
-- Backend changes still need the owner's approval.
+- `main` on GitHub has everything below: the 2026-10-03 bug-fix pass, the 2026-10-04 price refresh (branch `refresh-partselect-prices`) and the interview-day fixes (branch `interview-day-fixes`).
+- A fresh clone installs and runs on Windows by following the README, including when Claude runs the commands (output piped, not a console). Tested on 2026-10-04 from a fresh clone: `pip install -r requirements.txt`, `init.sql` + loader into an empty database, backend, frontend build, and the brief's questions.
+- Interview prep (PDF + PowerPoint) is kept locally in `Downloads/roseVZ-PartSelect/Interview-Prep/`, outside the repo.
 
 ## Run it locally (Windows)
 
 1. Open Docker Desktop, then `cd partselect-backend` and `docker compose up -d` (Postgres :5432, Redis :6379, ChromaDB :8001).
 2. First time only:
    - `py -3.12 -m venv venv` (the pinned numpy/scipy need Python ≤ 3.12)
-   - install `requirements.txt` **without** `uvloop` (no Windows support) and `selenium` / `undetected-chromedriver` (scraper-only; selenium 4.36 conflicts with the pinned `urllib3==2.3.0`). A plain `pip install -r requirements.txt`, as the README says, fails.
-   - `.\venv\Scripts\python.exe scripts\load_to_database.py` (311 parts, 233 install guides, 43 troubleshooting entries, 720 ChromaDB docs)
-   - `Get-Content scripts\seed_compatibility.sql | docker exec -i partselect_postgres psql -U postgres -d partselect` (compatibility rows for the brief's examples; nothing runs it automatically)
-3. `copy .env.example .env`, then set `DEEPSEEK_API_KEY` to the OpenAI key. The client speaks the OpenAI chat-completions format, so the `DEEPSEEK_*` names work with `DEEPSEEK_BASE_URL=https://api.openai.com/v1` and `DEEPSEEK_MODEL=gpt-4o-mini`.
-4. Backend: `.\venv\Scripts\python.exe -m app.main` from `partselect-backend` (http://localhost:8000). Restart it after editing `.env`.
-5. Frontend: `cd frontend`, `npm install`, `npm start` (http://localhost:3000).
+   - `.\venv\Scripts\python.exe -m pip install -r requirements.txt` (installs as-is; `uvloop` is skipped on Windows, and the scraper packages live in `scraper/requirements.txt`)
+   - `copy .env.example .env`, then set `DEEPSEEK_API_KEY` to the OpenAI key (`DEEPSEEK_BASE_URL=https://api.openai.com/v1`, `DEEPSEEK_MODEL=gpt-4o-mini`).
+   - `.\venv\Scripts\python.exe scripts\load_to_database.py`: 321 parts, 321 install guides, 49 troubleshooting entries, 3 compatibility rows, 830 ChromaDB docs. Safe to re-run; it updates in place.
+3. Backend: `.\venv\Scripts\python.exe -m app.main` from `partselect-backend` (http://localhost:8000). Restart it after editing `.env` or re-running the loader (the loader recreates the ChromaDB collection; a running backend keeps the old one and symptom questions fail with "Collection … does not exist").
+4. Frontend: `cd frontend`, `npm install`, `npm start` (http://localhost:3000).
 
-The GAF project also uses ports 3000 and 8000; stop it first.
+Stop the backend with Ctrl+C in its terminal. It runs in uvicorn reload mode, so killing only the parent process leaves a worker serving port 8000 with stale state.
 
-## Frontend redesign (done)
+## Price refresh (2026-10-04)
 
-- PartSelect's live palette (cream `#efe9d2`, ink `#12130f`, orange `#ee9721`, arctic denim `#d4ebed`) and Titillium Web.
-- Repair workspace: chat on the left, "Your repair" panel on the right (appliance, brand, model, reported problem, parts shortlist with total). Below 1100px the panel becomes a drawer.
-- Welcome screen with appliance picker and the brief's example questions.
-- Per-intent views: part cards (install-video thumbnail as the image), part detail, installation guide (inline YouTube + checklist), compatibility verdict.
-- "How I answered" trace: LangGraph path (`understand → search → gather_context → recommend → respond`) plus what the agent understood.
-- Markdown sanitised with DOMPurify; icons from lucide-react; motion via framer-motion (respects reduced motion).
-- Code: `frontend/src/{components,hooks,lib,context,styles}`.
+PartSelect now sits behind a Cloudflare check: plain requests, headless Chrome and the original Selenium scrapers all get "Just a moment…". `scraper/refresh_parts.py` re-scrapes the 321 product pages already in the catalog with `undetected-chromedriver` (visible Chrome, no clicks needed) and parses the current page layout (`div#main` data attributes). About an hour with 3–8 s pauses; progress is cached in `scraper/scraped_data/` (git-ignored), so an interrupted run resumes.
 
-## Backend problems
+- 535 of 550 records had a new price (e.g. the ice maker PS11738120 went from $80.20 to $77.34).
+- Install difficulty/time now come from PartSelect's customer ratings instead of pipeline defaults.
+- 11 parts previously dropped for a missing price are back (310 → 321).
+- To refresh again: install `scraper/requirements.txt`, run `refresh_parts.py`, then `process_all_data.py` and `load_to_database.py`, then restart the backend.
 
-### Fixed in `63748a5`
+## Bugs fixed on 2026-10-03 (found by running the app)
 
-1. **AI ranking** now parses through `llm.generate_json()` (`nodes.py:348`) and floats the customer's brand to the top. Before, a GE ice maker led a Whirlpool question.
-2. **Brand memory:** `brand` and `symptom` are now `AgentState` channels (`state.py:22-24`), and the classifier is told to extract brands (`intent.py:290`).
-3. **Model-number validation:** `_is_valid_model` (`nodes.py:29`) rejects words like "fridge".
-4. **Off-topic questions** are declined: an appliance allowlist in `generate_response` (`nodes.py:433`) plus a scoped prompt in `_generate_general_response` (`nodes.py:925`).
-5. **Compatibility (partly):** brand-family logic (`nodes.py:864`) instead of "any filter fits", plus seed rows for the brief's pairs (see open item 3).
-6. **LLM retries:** transient API errors retry with backoff (`app/core/llm.py:97`).
-7. **README** rewritten with accurate setup; `.env.example` added.
+1. **Conversation state grew exponentially.** `messages` used an `operator.add` reducer while every node returns the full state, so the list doubled at each node: 34 → 562 → 9,010 → 288,354 stored messages (43.7 MB in Redis) after 4 turns. Fix: plain channel (`app/agent/state.py:18`). Now exactly 2 messages per turn.
+2. **A part number "stuck" for the whole conversation.** After "Tell me about PS11701542", "My dishwasher is not draining" recommended that fridge water filter. Fix: the remembered part is looked up only for details/install/compatibility intents, or when it appears in the message (`nodes.py:25`, `nodes.py:159`).
+3. **An unknown part showed a different part.** "Tell me about PS99999999" displayed the previous part's details. Fix: per-turn results are cleared at the start of each turn (`nodes.py:64`).
+4. **Wrong compatibility for the brief's example.** `init.sql` seeded a fake "Ice Maker Assembly" for PS11752778 (really a fridge door shelf bin) and rows saying it fits dishwasher models (100%). Its real specs were also never loaded, because the upsert skipped `specifications`. Fixes:
+   - seed rows removed from `init.sql`
+   - the loader upsert now updates every column
+   - the loader is now re-runnable without duplicating guides or troubleshooting entries
+   - a new appliance check (`_MODEL_APPLIANCE`, `nodes.py:924`, used at `:852`) answers "No" for a fridge part vs a dishwasher model, where brand-family matching alone said "likely fits". The UI shows a "Doesn't fit" card.
+5. **Invented install facts.** The scraper got "N/A" for difficulty and time on all 550 records, and the pipeline defaults them (moderate, 30 min, `["screwdriver"]`). The UI no longer shows them (`InstallCard.js`, `PartDetail.js`).
+6. **Search on `None`.** `chat.py` seeds `search_query=None`, so a `.get()` default never applied. Fix: `or` fallback to the user's message (`nodes.py:140`).
 
-### Still open (fix only with approval)
+## Fixed on 2026-10-04 (interview-day fixes)
 
-1. **ChromaDB results are unused.** `recommend_parts` reads `relevant_docs` (`nodes.py:291`) but never puts them in the LLM context.
-2. **Diagnosis search ignores the brand.** The brand filter only runs for search/details/installation (`nodes.py:245`). Mitigated: ranking now puts the customer's brand first.
-3. **Compatibility seed isn't wired up.** `scripts/seed_compatibility.sql` isn't run by the loader, Docker or the README, so the brief's pairs only get confident verdicts after running it by hand (step 2 above).
-4. **`symptoms` is always empty.** The API returns `symptoms` (`app/api/chat.py:164`), but the agent only fills `symptom`. The frontend works around it.
-5. **Setup rough edges:** Redis URL hardcoded in `chat.py:39` (ignores `REDIS_URL`), and `requirements.txt` can't install as-is (selenium/urllib3 conflict; uvloop on Windows), which the README's `pip install -r requirements.txt` step runs into.
+7. **"My Whirlpool ice maker is not making ice" was declined as off-topic.** Without the word "fridge", the classifier set `appliance_type = "ice maker"` and the scope guard (`nodes.py:467`) refused it. Fix: `_normalize_appliance` (`nodes.py:51`, applied at `:109`) maps ice maker / freezer / water dispenser to "refrigerator".
+8. **A fresh install failed or was wrong:**
+   - `pip install -r requirements.txt` failed on Windows (`uvloop`) and on a `selenium`/`urllib3` conflict. `uvloop` now has a non-Windows marker; the scraper packages moved to `scraper/requirements.txt`.
+   - Nothing ran `seed_compatibility.sql`; the loader now applies it.
+   - On Windows, piped output (e.g. when Claude runs the commands) falls back to cp1252, so the loader, `process_all_data.py` and even the backend's startup message crashed on emoji. The entry points now switch stdout/stderr to UTF-8.
+9. **Scraper bugs:** both scrapers had `brand_links = brand_links[10]` (now `[:max_brands]`); `dishwasher_scraper.py` targeted the refrigerator URL.
+
+Verified working after the fixes: the brief's compatibility example → No; seeded filter → Yes 97%; ice maker questions with or without "fridge"; drain pump diagnosis; new prices in API and UI.
+
+## Still open (known issues; fix only with approval)
+
+1. **ChromaDB results are unused.** `recommend_parts` reads `relevant_docs` (`nodes.py:320`) but never puts them in the LLM context, although the README advertises hybrid retrieval.
+2. **Brand filter is all-or-nothing.** "Samsung dishwasher spray arms" found 12 spray arms, filtered all out, and said "couldn't find" (`nodes.py:274`). Diagnosis searches don't filter by brand; ranking floats the brand first instead.
+3. **`symptoms` is always empty in the API**, because the agent fills `symptom`. The appliance type also stays unknown during part-number questions.
+4. **Install details are hidden in the UI.** Real difficulty/time now exist for most parts (from the 2026-10-04 refresh), but parts without a rating still get the pipeline defaults (`process_installation_guides` in `process_all_data.py`), and the backend templates state them. The UI hides them all.
+5. **A wasted LLM call.** Ranking runs even for a single looked-up part.
+6. **Redis URL hardcoded** in `chat.py:39`.
+7. **The original brand-crawl scrapers are outdated.** Their selectors target the old page layout and they get stopped by Cloudflare; use `refresh_parts.py` instead.
+8. **Troubleshooting doc IDs aren't reproducible.** `process_all_data.py` builds `chromadb_doc_id` from Python's randomized `hash()`, so they change on every run.
+9. **Dead code:** `_generate_llm_response`, `extract_model_or_part`, `search_products_by_symptom`, `get_troubleshooting_info`, `generate_with_chat_history`, the `conversations` table.
 
 ## Next steps
 
-- Re-test the welcome-screen questions against the new backend (about 2 `gpt-4o-mini` calls each), after running the compatibility seed.
-- Ask the owner before fixing the open items; open item 3 and the `requirements.txt` step matter most for someone cloning the repo.
+- Re-run the brief's questions in one conversation after any change (about 2 `gpt-4o-mini` calls each).
