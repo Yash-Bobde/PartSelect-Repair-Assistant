@@ -270,14 +270,17 @@ class AgentNodes:
                 )
                 print(f"[Search] Keyword search found {len(search_results)} results")
                 
-                # FILTER BY BRAND if specified
+                # FILTER BY BRAND if specified. If the catalog has none of that
+                # brand, keep the other brands' parts instead of returning nothing;
+                # the search response says they may not fit.
                 if brand and search_results:
-                    original_count = len(search_results)
-                    search_results = [
-                        p for p in search_results 
-                        if p.get('brand', '').lower() == brand.lower()
+                    brand_matches = [
+                        p for p in search_results
+                        if (p.get('brand') or '').lower() == brand.lower()
                     ]
-                    print(f"[Search] Filtered by brand '{brand}': {original_count} → {len(search_results)} results")
+                    print(f"[Search] Filtered by brand '{brand}': {len(search_results)} → {len(brand_matches)} results")
+                    if brand_matches:
+                        search_results = brand_matches
         
         state["search_results"] = search_results
         
@@ -479,7 +482,7 @@ Respond in JSON with recommended_parts ordered best-first:
         # Build response based on intent
         if intent == "search_part":
             response = await self._generate_search_response(
-                user_query, recommended_parts, reasoning
+                user_query, recommended_parts, reasoning, state.get("brand")
             )
         
         elif intent == "product_details":
@@ -515,16 +518,27 @@ Respond in JSON with recommended_parts ordered best-first:
     
     async def _generate_search_response(
     self, 
-    query: str, 
-    parts: List[Dict], 
-    reasoning: str
+    query: str,
+    parts: List[Dict],
+    reasoning: str,
+    brand: Optional[str] = None
 ) -> str:
         """Generate response for part search"""
-        
+
         if not parts:
             return "I couldn't find any parts matching your search. Could you provide more details or try different keywords?"
-        
-        response = f"{reasoning}\n\n" if reasoning else ""
+
+        if brand and not any((p.get('brand') or '').lower() == brand.lower() for p in parts):
+            # No part of the requested brand: say so up front (the LLM's reasoning
+            # line may still talk about that brand, so it's left out).
+            response = (
+                f"I couldn't find any **{brand}** parts for that in our catalog. "
+                f"These are similar parts from other brands and may not fit your {brand} appliance; "
+                "share your model number and I can check compatibility.\n\n"
+            )
+        else:
+            response = f"{reasoning}\n\n" if reasoning else ""
+        # The frontend shows the text above this line and renders the list as cards.
         response += "Here are the parts I found:\n\n"
         
         for i, part in enumerate(parts[:3], 1):

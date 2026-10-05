@@ -20,7 +20,7 @@ GitHub: private repo `Yash-Bobde/PartSelect` (personal account). `partselect-bac
 3. Backend: `.\venv\Scripts\python.exe -m app.main` from `partselect-backend` (http://localhost:8000). Restart it after editing `.env` or re-running the loader (the loader recreates the ChromaDB collection; a running backend keeps the old one and symptom questions fail with "Collection … does not exist").
 4. Frontend: `cd frontend`, `npm install`, `npm start` (http://localhost:3000).
 
-Stop the backend with Ctrl+C in its terminal. It runs in uvicorn reload mode, so killing only the parent process leaves a worker serving port 8000 with stale state.
+Stop the backend with Ctrl+C in its terminal. It runs in uvicorn reload mode, so killing only the parent process leaves a worker serving port 8000 with stale state. On Windows the auto-reload is also unreliable (it logged "Reloading..." but kept the old worker serving), so restart the backend by hand after any code change.
 
 ## Price refresh (2026-10-04)
 
@@ -52,13 +52,14 @@ PartSelect now sits behind a Cloudflare check: plain requests, headless Chrome a
    - Nothing ran `seed_compatibility.sql`; the loader now applies it.
    - On Windows, piped output (e.g. when Claude runs the commands) falls back to cp1252, so the loader, `process_all_data.py` and even the backend's startup message crashed on emoji. The entry points now switch stdout/stderr to UTF-8.
 9. **Scraper bugs:** both scrapers had `brand_links = brand_links[10]` (now `[:max_brands]`); `dishwasher_scraper.py` targeted the refrigerator URL.
+10. **A branded search with no exact brand match said "couldn't find any parts".** "Samsung dishwasher spray arms" found 12 spray arms (none Samsung) and filtered them all out. Common searches hit this for most brands (KitchenAid, Maytag and Kenmore parts are all recorded as Whirlpool). Now the brand filter keeps the other brands' parts when there's no match (`nodes.py:276`), and the reply says they're other brands that may not fit and asks for the model number (`_generate_search_response`). The reply still has the "Here are the parts I found:" line the frontend cuts at, so the UI shows the note above the part cards. With a brand match, results are unchanged.
 
 Verified working after the fixes: the brief's compatibility example → No; seeded filter → Yes 97%; ice maker questions with or without "fridge"; drain pump diagnosis; new prices in API and UI.
 
 ## Still open (known issues; fix only with approval)
 
 1. **ChromaDB results are unused.** `recommend_parts` reads `relevant_docs` (`nodes.py:320`) but never puts them in the LLM context, although the README advertises hybrid retrieval.
-2. **Brand filter is all-or-nothing.** "Samsung dishwasher spray arms" found 12 spray arms, filtered all out, and said "couldn't find" (`nodes.py:274`). Diagnosis searches don't filter by brand; ranking floats the brand first instead.
+2. **Diagnosis replies don't flag other brands.** Diagnosis searches don't filter by brand (ranking floats the brand first), so "My Samsung dishwasher is not draining" can list other brands' pumps without the "may not fit" note that part searches now give.
 3. **`symptoms` is always empty in the API**, because the agent fills `symptom`. The appliance type also stays unknown during part-number questions.
 4. **Install details are hidden in the UI.** Real difficulty/time now exist for most parts (from the 2026-10-04 refresh), but parts without a rating still get the pipeline defaults (`process_installation_guides` in `process_all_data.py`), and the backend templates state them. The UI hides them all.
 5. **A wasted LLM call.** Ranking runs even for a single looked-up part.
